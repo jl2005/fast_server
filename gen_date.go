@@ -13,23 +13,21 @@ func main() {
 	maxNum := flag.Int("max", 200, "max length of line")
 	flag.Parse()
 
-	file, err := os.OpenFile(*name, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(*name, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
 	if err != nil {
 		fmt.Printf("open file '%s' error. %s\n", *name, err)
 		return
 	}
 	defer file.Close()
 
-	data := make([]byte, *maxNum)
+	data := make([]byte, *maxNum+1)
 	for *size > 0 {
-		n := rand.Intn(*maxNum)
-		if n == 0 {
-			continue
-		}
+		n := rand.Intn(*maxNum) + 1
 		if n > *size {
 			n = *size
 		}
 		genData(data, n)
+		data[n-1] = byte('\n')
 		file.Write(data[:n])
 		*size -= n
 	}
@@ -37,9 +35,8 @@ func main() {
 }
 
 func genData(data []byte, n int) {
-	for i := 0; i < n-1; i++ {
+	for i := 0; i < n; i++ {
 		item := byte(rand.Intn(127-32) + 32)
 		data[i] = item
 	}
-	data[n-1] = byte('\n')
 }

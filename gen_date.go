@@ -27,7 +27,14 @@ func main() {
 			n = *size
 		}
 		genData(data, n)
-		data[n-1] = byte('\n')
+		if n == 1 {
+			if *size > 1 {
+				n++
+				data[n-1] = byte('\n')
+			}
+		} else {
+	      data[n-1] = byte('\n')
+	    }
 		file.Write(data[:n])
 		*size -= n
 	}
@@ -36,7 +43,7 @@ func main() {
 
 func genData(data []byte, n int) {
 	for i := 0; i < n; i++ {
-		item := byte(rand.Intn(127-32) + 32)
+		item := byte(rand.Intn(126-32) + 32)
 		data[i] = item
 	}
 }

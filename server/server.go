@@ -1,10 +1,11 @@
-package main 
+package main
 
 import (
-    "log"
-	"flag"
-	"net"
 	"encoding/binary"
+	"flag"
+	"log"
+	"net"
+	"time"
 
 	"golang.org/x/exp/mmap"
 )
@@ -14,20 +15,26 @@ func main() {
 	addr := flag.String("addr", ":8888", "listen address")
 	flag.Parse()
 
+	start := time.Now()
 	data, err := readFile(*name)
 	if err != nil {
 		log.Printf("read file '%s' error. %s", err)
-		return 
+		return
 	}
+	end := time.Now()
+	log.Printf("load file used: %v", end.Sub(start))
+
 	list := convert(data)
+	log.Printf("convert data used: %v", time.Now().Sub(end))
+
 	lis, err := net.Listen("tcp", *addr)
-	if err !=nil {
+	if err != nil {
 		log.Printf("listen failed. %s", err)
 		return
 	}
 	log.Printf("start listen %s", *addr)
 	for {
-		conn, err := lis.Accept() 
+		conn, err := lis.Accept()
 		if err != nil {
 			log.Printf("accept failed. %s", err)
 			return
@@ -54,13 +61,27 @@ func convert(data []byte) [][]byte {
 	var list [][]byte
 	for i := range data {
 		if data[i] == '\n' {
-			//TODO delete 1/3
-			//TODO reverse
-			list = append(list, data[start:i])
-			start = i+1
+			list = append(list, deleteAndReverse(data[start:i]))
+			start = i + 1
 		}
 	}
 	return list
+}
+
+func deleteAndReverse(data []byte) []byte {
+	l := len(data) / 3
+	if l > 0 {
+		copy(data[l:], data[l+l:])
+		data = data[:len(data)-l]
+	}
+	i := 0
+	j := len(data)-1
+	for i < j {
+		data[i], data[j] = data[j], data[i]
+		i++
+		j--
+	}
+	return data
 }
 
 func handle(conn net.Conn, list [][]byte) {

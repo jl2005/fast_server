@@ -10,9 +10,12 @@ import (
 	"golang.org/x/exp/mmap"
 )
 
+var num *int
+
 func main() {
 	name := flag.String("name", "data", "data file name")
 	addr := flag.String("addr", ":8888", "listen address")
+	num = flag.Int("num", 8, "pasre thread num")
 	flag.Parse()
 
 	start := time.Now()
@@ -57,15 +60,38 @@ func readFile(name string) ([]byte, error) {
 }
 
 func convert(data []byte) [][]byte {
-	start := 0
+	NUM := *num
+	ch := make(chan [][]byte, NUM)
+	for i := 0; i < NUM-1; i++ {
+		go parse(data, i*(len(data)/NUM), (i+1)*(len(data)/NUM), ch)
+	}
+	go parse(data, (NUM-1)*(len(data)/NUM), len(data), ch)
 	var list [][]byte
-	for i := range data {
-		if data[i] == '\n' {
-			list = append(list, deleteAndReverse(data[start:i]))
-			start = i + 1
+	for i := 0; i < NUM; i++ {
+		select {
+		case l := <-ch:
+			list = append(list, l...)
 		}
 	}
 	return list
+}
+
+func parse(data []byte, start int, end int, ch chan [][]byte) {
+	for data[start] != byte('\n') {
+		start++
+	}
+	start++
+	i := start
+	var list [][]byte
+	for start < end {
+		for data[start] != byte('\n') && start < len(data) {
+			start++
+		}
+		list = append(list, deleteAndReverse(data[i:start]))
+		start++
+		i = start
+	}
+	ch <- list
 }
 
 func deleteAndReverse(data []byte) []byte {
@@ -75,7 +101,7 @@ func deleteAndReverse(data []byte) []byte {
 		data = data[:len(data)-l]
 	}
 	i := 0
-	j := len(data)-1
+	j := len(data) - 1
 	for i < j {
 		data[i], data[j] = data[j], data[i]
 		i++

@@ -1,10 +1,11 @@
-package main 
+package main
 
 import (
-    "log"
-	"flag"
-	"net"
 	"encoding/binary"
+	"flag"
+	"log"
+	"net"
+	"time"
 
 	"golang.org/x/exp/mmap"
 )
@@ -14,20 +15,24 @@ func main() {
 	addr := flag.String("addr", ":8888", "listen address")
 	flag.Parse()
 
+	start := time.Now()
 	data, err := readFile(*name)
 	if err != nil {
 		log.Printf("read file '%s' error. %s", err)
-		return 
+		return
 	}
+	end := time.Now()
+	log.Printf("load file use %v", end.Sub(start))
 	list := convert(data)
+	log.Printf("convert use %v", time.Now().Sub(end))
 	lis, err := net.Listen("tcp", *addr)
-	if err !=nil {
+	if err != nil {
 		log.Printf("listen failed. %s", err)
 		return
 	}
 	log.Printf("start listen %s", *addr)
 	for {
-		conn, err := lis.Accept() 
+		conn, err := lis.Accept()
 		if err != nil {
 			log.Printf("accept failed. %s", err)
 			return
@@ -50,17 +55,50 @@ func readFile(name string) ([]byte, error) {
 }
 
 func convert(data []byte) [][]byte {
-	start := 0
+	const NUM = 10
+	ch := make(chan [][]byte, NUM)
+	for i := 0; i < NUM-1; i++ {
+		go parse(data, i*(len(data)/NUM), (i+1)*(len(data)/NUM), ch)
+	}
+	go parse(data, (NUM-1)*(len(data)/NUM), len(data), ch)
 	var list [][]byte
-	for i := range data {
-		if data[i] == '\n' {
-			//TODO delete 1/3
-			//TODO reverse
-			list = append(list, data[start:i])
-			start = i+1
+	for i := 0; i < NUM; i++ {
+		select {
+		case l := <-ch:
+			list = append(list, l...)
 		}
 	}
 	return list
+}
+
+func parse(data []byte, start int, end int, ch chan [][]byte) {
+	for data[start] != byte('\n') {
+		start++
+	}
+	start++
+	i := start
+	var list [][]byte
+	for start < end {
+		for data[start] != byte('\n') && start < len(data) {
+			start++
+		}
+		list = append(list, deleteAndReverse(data[i:start]))
+		start++
+		i = start
+	}
+	ch <- list
+}
+
+func deleteAndReverse(data []byte) []byte {
+	l := len(data) / 3
+	copy(data[l:], data[l+l:])
+	data = data[:len(data)-l]
+	i := 0
+	j := len(data) - 1
+	for i < j {
+		data[i], data[j] = data[j], data[i]
+	}
+	return data
 }
 
 func handle(conn net.Conn, list [][]byte) {

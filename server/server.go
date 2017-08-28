@@ -61,15 +61,17 @@ func readFile(name string) ([]byte, error) {
 
 func convert(data []byte) [][]byte {
 	NUM := *num
-	ch := make(chan [][]byte, NUM)
+	chs := make([]chan [][]byte, NUM)
 	for i := 0; i < NUM-1; i++ {
-		go parse(data, i*(len(data)/NUM), (i+1)*(len(data)/NUM), ch)
+		chs[i] = make(chan [][]byte, 1)
+		go parse(data, i*(len(data)/NUM), (i+1)*(len(data)/NUM), chs[i])
 	}
-	go parse(data, (NUM-1)*(len(data)/NUM), len(data), ch)
+	chs[NUM-1] = make(chan [][]byte, 1)
+	go parse(data, (NUM-1)*(len(data)/NUM), len(data), chs[NUM-1])
 	var list [][]byte
 	for i := 0; i < NUM; i++ {
 		select {
-		case l := <-ch:
+		case l := <-chs[i]:
 			list = append(list, l...)
 		}
 	}
@@ -77,10 +79,12 @@ func convert(data []byte) [][]byte {
 }
 
 func parse(data []byte, start int, end int, ch chan [][]byte) {
-	for data[start] != byte('\n') {
+	for start != 0 && data[start] != byte('\n') {
 		start++
 	}
-	start++
+	if data[start] == '\n' {
+		start++
+	}
 	i := start
 	var list [][]byte
 	for start < end {

@@ -1,36 +1,90 @@
 package main
 
 import (
-	"flag"
+	"bytes"
 	"encoding/binary"
-    "net"
-    "log"
-	"fmt"
+	"flag"
+	"log"
+	"net"
+	"strconv"
+	"sync"
+	"time"
 )
+
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8888", "server address")
+	n := flag.Int("n", 1, "connect thread")
+	lines := flag.Int("l", 1000, "every thread get lines")
 	flag.Parse()
 
-	conn, err := net.Dial("tcp", *addr)
+	start := time.Now()
+	defer func() {
+		log.Printf("use time %v", time.Now().Sub(start))
+	}()
+	chs := make([]chan []byte, *n)
+	const NUM = 10
+	for i := 0; i < *n; i++ {
+		chs[i] = make(chan []byte, NUM)
+		go worker(*addr, uint32(i), uint32(*n), uint32(*lines), chs[i])
+	}
+
+	var buf []byte
+	var ok bool
+	for {
+		for i := 0; i < *n; i++ {
+			select {
+			case buf, ok = <-chs[i]:
+				if !ok {
+					return
+				}
+				write(buf)
+			}
+		}
+	}
+}
+
+func worker(addr string, id, n, lines uint32, ch chan []byte) {
+	defer close(ch)
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		log.Printf("connect %s error. %s", *addr, err)
+		log.Printf("connect %s error. %s", addr, err)
 		return
 	}
 	defer conn.Close()
-	const MAXSIZE = 300
-	data := make([]byte, MAXSIZE)
-	var n int
-	var i uint32
-	for i=0; ; i++{
-		if err = binary.Write(conn, binary.LittleEndian, i); err != nil {
-			log.Printf("write error. %s", err)
-			break
+	var i, index uint32
+	for i = 0; ; i++ {
+		n, m := 0, 0
+		buf := make([]byte, 256*lines)
+		start := id*lines + i*lines
+		end := start + lines
+		for index = start; index < end; index++ {
+			if err = binary.Write(conn, binary.LittleEndian, index); err != nil {
+				log.Printf("write error. %s", err)
+				//TODO 如果失败则需要重试
+				return
+			}
+			data := strconv.AppendUint(buf[:n], uint64(index+1), 10)
+			n += len(data)
+			log.Printf("n=%d", n)
+			if m, err = conn.Read(buf[n:]); err != nil {
+				log.Printf("read error. %s", err)
+				return
+			}
+			n += m
+			buf[n] = byte('\n')
+			n++
 		}
-		if n, err = conn.Read(data); err != nil {
-			log.Printf("read error. %s", err)
-			break
-		}
-		fmt.Printf("%s\n", data[:n])
+		ch <- buf[:n]
 	}
+}
+
+func write(buf []byte) {
+	//FIXME write to pagecache
+	//fmt.Printf("%s", string(buf))
 }

@@ -88,7 +88,7 @@ func parse(data []byte, start int, end int, ch chan [][]byte) {
 	i := start
 	var list [][]byte
 	for start < end {
-		for data[start] != byte('\n') && start < len(data) {
+		for start < len(data) && data[start] != byte('\n') {
 			start++
 		}
 		list = append(list, deleteAndReverse(data[i:start]))

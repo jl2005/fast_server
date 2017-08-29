@@ -27,15 +27,13 @@ func main() {
 			n = *size
 		}
 		genData(data, n)
-		if n == 1 {
-			if *size > 1 {
-				n++
-				data[n-1] = byte('\n')
-			}
+		if n+1 > *size {
+			file.Write(data[:n])
 		} else {
-	      data[n-1] = byte('\n')
-	    }
-		file.Write(data[:n])
+			data[n] = byte('\n')
+			n++
+			file.Write(data[:n])
+		}
 		*size -= n
 	}
 	fmt.Printf("generate file finshed.\n")

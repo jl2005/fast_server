@@ -69,9 +69,8 @@ func worker(addr string, id, n, lines uint32, ch chan []byte) {
 				//TODO 如果失败则需要重试
 				return
 			}
-			data := strconv.AppendUint(buf[:n], uint64(index+1), 10)
+			data := strconv.AppendUint(buf[n:n], uint64(index+1), 10)
 			n += len(data)
-			log.Printf("n=%d", n)
 			if m, err = conn.Read(buf[n:]); err != nil {
 				log.Printf("read error. %s", err)
 				return

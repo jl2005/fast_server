@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"flag"
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -49,31 +50,36 @@ func main() {
 	}
 }
 
-func worker(addr string, id, n, lines uint32, ch chan []byte) {
+func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	defer close(ch)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		log.Printf("connect %s error. %s", addr, err)
+		log.Printf("%d connect %s error. %s", id, addr, err)
 		return
 	}
 	defer conn.Close()
 	var i, index uint32
-	for i = 0; ; i++ {
+	for i = 0; err == nil; i++ {
 		n, m := 0, 0
 		buf := make([]byte, 256*lines)
-		start := id*lines + i*lines
+		start := id*lines + i*nn*lines
 		end := start + lines
 		for index = start; index < end; index++ {
 			if err = binary.Write(conn, binary.LittleEndian, index); err != nil {
-				log.Printf("write error. %s", err)
+				log.Printf("%d write error. %s", id, err)
 				//TODO 如果失败则需要重试
 				return
 			}
 			data := strconv.AppendUint(buf[n:n], uint64(index+1), 10)
 			n += len(data)
 			if m, err = conn.Read(buf[n:]); err != nil {
-				log.Printf("read error. %s", err)
-				return
+				if err != io.EOF {
+					n += m
+					buf[n] = byte('\n')
+					n++
+				}
+				log.Printf("%d read error. %s", id, err)
+				break
 			}
 			n += m
 			buf[n] = byte('\n')

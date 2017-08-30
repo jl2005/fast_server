@@ -5,12 +5,15 @@ import (
 	"flag"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/mmap"
 )
 
 var num *int
+
+var total uint64
 
 func main() {
 	name := flag.String("name", "data", "data file name")
@@ -35,6 +38,9 @@ func main() {
 		log.Printf("listen failed. %s", err)
 		return
 	}
+	var ch chan struct{}
+	defer close(ch)
+	go stat(ch)
 	log.Printf("start listen %s", *addr)
 	for {
 		conn, err := lis.Accept()
@@ -43,6 +49,21 @@ func main() {
 			return
 		}
 		go handle(conn, list)
+	}
+}
+
+func stat(ch chan struct{}) {
+	var speed uint64
+	for {
+		select {
+		case <-time.Tick(time.Second):
+			speed = 0
+			speed = atomic.SwapUint64(&total, speed)
+			log.Printf("speed %d", speed)
+		case <-ch:
+			log.Printf("total lines %d", total)
+			return
+		}
 	}
 }
 
@@ -130,5 +151,6 @@ func handle(conn net.Conn, list [][]byte) {
 			log.Printf("write failed. %s", err)
 			return
 		}
+		atomic.AddUint64(&total, 1)
 	}
 }

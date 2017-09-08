@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/binary"
 	"flag"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"sync/atomic"
 	"time"
 
@@ -16,10 +19,18 @@ var num *int
 var total uint64
 
 func main() {
-	name := flag.String("name", "data", "data file name")
+	name := flag.String("f", "data", "data file name")
 	addr := flag.String("addr", ":8888", "listen address")
 	num = flag.Int("num", 8, "pasre thread num")
+	profAddr := flag.String("paddr", "", "prof listen address")
 	flag.Parse()
+
+	if len(*profAddr) > 0 {
+		log.Printf("start pprof listen in %s", *profAddr)
+		go func() {
+			log.Println(http.ListenAndServe(*profAddr, nil))
+		}()
+	}
 
 	start := time.Now()
 	data, err := readFile(*name)
@@ -38,10 +49,10 @@ func main() {
 		log.Printf("listen failed. %s", err)
 		return
 	}
+	log.Printf("start listen %s", *addr)
 	var ch chan struct{}
 	defer close(ch)
-	go stat(ch)
-	log.Printf("start listen %s", *addr)
+	go statStat(ch)
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -52,16 +63,17 @@ func main() {
 	}
 }
 
-func stat(ch chan struct{}) {
-	var speed uint64
+func statStat(ch chan struct{}) {
+	var speed, t uint64
 	for {
 		select {
 		case <-time.Tick(time.Second):
 			speed = 0
 			speed = atomic.SwapUint64(&total, speed)
-			log.Printf("speed %d", speed)
+			t += speed
+			log.Printf("speed %d, total %d", speed, t)
 		case <-ch:
-			log.Printf("total lines %d", total)
+			log.Printf("total lines %d", t)
 			return
 		}
 	}
@@ -135,19 +147,37 @@ func deleteAndReverse(data []byte) []byte {
 	return data
 }
 
+/*
 func handle(conn net.Conn, list [][]byte) {
 	defer conn.Close()
 	var err error
 	var index uint32
+	reader := bufio.NewWriter(conn)
+	for i := 0; i < len(list); i++ {
+		if _, err = reader.Write(list[index]); err != nil {
+			log.Printf("write failed. %s", err)
+			return
+		}
+		atomic.AddUint64(&total, 1)
+	}
+}
+*/
+
+func handle(conn net.Conn, list [][]byte) {
+	defer conn.Close()
+	var err error
+	var index uint32
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
 	for {
-		if err = binary.Read(conn, binary.LittleEndian, &index); err != nil {
+		if err = binary.Read(reader, binary.LittleEndian, &index); err != nil {
 			log.Printf("read failed. %s", err)
 			return
 		}
 		if int(index) >= len(list) {
 			return
 		}
-		if _, err = conn.Write(list[index]); err != nil {
+		if _, err = writer.Write(list[index]); err != nil {
 			log.Printf("write failed. %s", err)
 			return
 		}

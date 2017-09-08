@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"flag"
@@ -35,9 +36,9 @@ func main() {
 	}
 
 	start := time.Now()
-	done := make([]chan struct{})
+	done := make(chan struct{})
 	chs := make([]chan []byte, *n)
-	go receiver(chs)
+	go receiver(chs, done)
 	const NUM = 10
 	for i := 0; i < *n; i++ {
 		chs[i] = make(chan []byte, NUM)
@@ -51,8 +52,9 @@ func receiver(chs []chan []byte, done chan struct{}) {
 	defer close(done)
 	var buf []byte
 	var ok bool
+	n := len(chs)
 	for {
-		for i := 0; i < *n; i++ {
+		for i := 0; i < n; i++ {
 			select {
 			case buf, ok = <-chs[i]:
 				if !ok {
@@ -64,7 +66,7 @@ func receiver(chs []chan []byte, done chan struct{}) {
 	}
 }
 
-func worker2(addr string, id, nn, lines uint32, ch chan []byte) {
+func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	defer close(ch)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -72,25 +74,26 @@ func worker2(addr string, id, nn, lines uint32, ch chan []byte) {
 		return
 	}
 	defer conn.Close()
-	tokens := make(chan struct{}, 2)
-	tokens <- struct{}{}
-	tokens <- struct{}{}
-	go send(conn, tokens)
-	receive(conn, tokens)
+	tokens := make(chan struct{}, 10)
+	for i := 0; i < 10; i++ {
+		tokens <- struct{}{}
+	}
+	go send(conn, tokens, id, nn, lines)
+	receive(conn, tokens, id, nn, lines, ch)
 }
 
-func send(conn net.Conn, tokens chan struct{}, id, nn ) {
+func send(conn net.Conn, tokens chan struct{}, id, nn, lines uint32) {
 	var err error
 	var i, index uint32
+	writer := bufio.NewWriter(conn)
 	for i = 0; err == nil; i++ {
-		buf := make([]byte, 256*lines)
 		start := id*lines + i*nn*lines
 		end := start + lines
 		select {
 		case <-tokens:
 		}
 		for index = start; index < end; index++ {
-			if err = binary.Write(conn, binary.LittleEndian, index); err != nil {
+			if err = binary.Write(writer, binary.LittleEndian, index); err != nil {
 				log.Printf("%d write error. %s", id, err)
 				//TODO 如果失败则需要重试
 				return
@@ -99,28 +102,29 @@ func send(conn net.Conn, tokens chan struct{}, id, nn ) {
 	}
 }
 
-func send(conn net.Conn, tokens chan struct{}) {
-	var i, index uint32
+func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan []byte) {
+	reader := bufio.NewReader(conn)
+	var err error
+	var i, index, l uint32
 	for i = 0; err == nil; i++ {
 		n, m := 0, 0
 		buf := make([]byte, 256*lines)
 		start := id*lines + i*nn*lines
 		end := start + lines
 		for index = start; index < end; index++ {
-			if err = binary.Write(conn, binary.LittleEndian, index); err != nil {
-				log.Printf("%d write error. %s", id, err)
-				//TODO 如果失败则需要重试
+			if err = binary.Read(reader, binary.LittleEndian, &l); err != nil {
+				log.Printf("%d read length error. %s", id, err)
 				return
 			}
 			data := strconv.AppendUint(buf[n:n], uint64(index+1), 10)
 			n += len(data)
-			if m, err = conn.Read(buf[n:]); err != nil {
+			if m, err = io.ReadFull(reader, buf[n:n+int(l)]); err != nil {
 				if err != io.EOF {
 					n += m
 					buf[n] = byte('\n')
 					n++
 				}
-				log.Printf("%d read error. %s", id, err)
+				log.Printf("%d read data error. %s", id, err)
 				break
 			}
 			n += m
@@ -128,9 +132,11 @@ func send(conn net.Conn, tokens chan struct{}) {
 			n++
 		}
 		ch <- buf[:n]
+		tokens <- struct{}{}
 	}
 }
 
+/*
 func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	defer close(ch)
 	conn, err := net.Dial("tcp", addr)
@@ -157,6 +163,7 @@ func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	}
 	ch <- buf[:n]
 }
+*/
 
 func write(buf []byte) {
 	//FIXME write to pagecache

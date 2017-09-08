@@ -177,6 +177,10 @@ func handle(conn net.Conn, list [][]byte) {
 		if int(index) >= len(list) {
 			return
 		}
+		if err = binary.Write(writer, binary.LittleEndian, uint32(len(list[index]))); err != nil {
+			log.Printf("write data length error. %s", err)
+			return
+		}
 		if _, err = writer.Write(list[index]); err != nil {
 			log.Printf("write failed. %s", err)
 			return

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ func main() {
 	n := flag.Int("n", 1, "connect thread")
 	lines := flag.Int("l", 1000, "every thread get lines")
 	profAddr := flag.String("paddr", "", "prof listen address")
+	outFile := flag.String("o", "output.data", "output file name")
 	flag.Parse()
 
 	if len(*profAddr) > 0 {
@@ -38,7 +40,7 @@ func main() {
 	start := time.Now()
 	done := make(chan struct{})
 	chs := make([]chan []byte, *n)
-	go receiver(chs, done)
+	go receiver(chs, done, *outFile)
 	const NUM = 10
 	for i := 0; i < *n; i++ {
 		chs[i] = make(chan []byte, NUM)
@@ -48,8 +50,20 @@ func main() {
 	log.Printf("use time %v", time.Now().Sub(start))
 }
 
-func receiver(chs []chan []byte, done chan struct{}) {
+func receiver(chs []chan []byte, done chan struct{}, outFileName string) {
 	defer close(done)
+
+	file, err := os.OpenFile(outFileName, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		log.Printf("open output file errror. %s\n", err)
+		return
+
+	}
+	defer file.Close()
+
+	bufFile := bufio.NewWriter(file)
+	//	defer bufFile.Flush()
+
 	var buf []byte
 	var ok bool
 	n := len(chs)
@@ -58,9 +72,11 @@ func receiver(chs []chan []byte, done chan struct{}) {
 			select {
 			case buf, ok = <-chs[i]:
 				if !ok {
+					bufFile.Flush()
+					time.Sleep(5 * time.Second)
 					return
 				}
-				write(buf)
+				write(bufFile, buf)
 			}
 		}
 	}
@@ -113,7 +129,10 @@ func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan 
 		end := start + lines
 		for index = start; index < end; index++ {
 			if err = binary.Read(reader, binary.LittleEndian, &l); err != nil {
-				log.Printf("%d read length error. %s", id, err)
+				log.Printf("%d read length error. %s start=%d, end=%d, index=%d", id, err, start, end, index)
+				if n > 0 {
+					ch <- buf[:n]
+				}
 				return
 			}
 			data := strconv.AppendUint(buf[n:n], uint64(index+1), 10)
@@ -124,7 +143,7 @@ func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan 
 					buf[n] = byte('\n')
 					n++
 				}
-				log.Printf("%d read data error. %s", id, err)
+				log.Printf("%d read data error. %s start=%d, end=%d, index=%d", id, err, start, end, index)
 				break
 			}
 			n += m
@@ -136,7 +155,6 @@ func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan 
 	}
 }
 
-func write(buf []byte) {
-	//FIXME write to pagecache
-	//fmt.Printf("%s", string(buf))
+func write(file io.Writer, buf []byte) {
+	file.Write(buf)
 }

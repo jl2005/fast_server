@@ -49,7 +49,7 @@ func main() {
 		log.Printf("listen failed. %s", err)
 		return
 	}
-	log.Printf("start listen %s", *addr)
+	log.Printf("start listen %s, line %d", *addr, len(list))
 	var ch chan struct{}
 	defer close(ch)
 	go statStat(ch)
@@ -159,6 +159,7 @@ func handle(conn net.Conn, list [][]byte) {
 			return
 		}
 		if int(index) >= len(list) {
+			writer.Flush()
 			return
 		}
 		if err = binary.Write(writer, binary.LittleEndian, uint32(len(list[index]))); err != nil {

@@ -136,35 +136,6 @@ func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan 
 	}
 }
 
-/*
-func worker(addr string, id, nn, lines uint32, ch chan []byte) {
-	defer close(ch)
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		log.Printf("%d connect %s error. %s", id, addr, err)
-		return
-	}
-	defer conn.Close()
-	buf := make([]byte, 1024*1024*1024)
-	n, m := 0, 0
-	for err == nil {
-		if m, err = conn.Read(buf[n:]); err != nil {
-			if err != io.EOF {
-				n += m
-				buf[n] = byte('\n')
-				n++
-			}
-			log.Printf("%d read error. %s", id, err)
-			break
-		}
-		n += m
-		buf[n] = byte('\n')
-		n++
-	}
-	ch <- buf[:n]
-}
-*/
-
 func write(buf []byte) {
 	//FIXME write to pagecache
 	//fmt.Printf("%s", string(buf))

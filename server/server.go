@@ -147,22 +147,6 @@ func deleteAndReverse(data []byte) []byte {
 	return data
 }
 
-/*
-func handle(conn net.Conn, list [][]byte) {
-	defer conn.Close()
-	var err error
-	var index uint32
-	reader := bufio.NewWriter(conn)
-	for i := 0; i < len(list); i++ {
-		if _, err = reader.Write(list[index]); err != nil {
-			log.Printf("write failed. %s", err)
-			return
-		}
-		atomic.AddUint64(&total, 1)
-	}
-}
-*/
-
 func handle(conn net.Conn, list [][]byte) {
 	defer conn.Close()
 	var err error

@@ -5,13 +5,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -84,12 +84,19 @@ func receiver(chs []chan []byte, done chan struct{}, outFileName string) {
 
 func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	defer close(ch)
-	conn, err := net.Dial("tcp", addr)
+
+	address, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
-		log.Printf("%d connect %s error. %s", id, addr, err)
-		return
+		fmt.Println("Can't resolve address: ", err)
+		os.Exit(1)
+	}
+	conn, err := net.DialUDP("udp", nil, address)
+	if err != nil {
+		fmt.Println("Can't dial: ", err)
+		os.Exit(1)
 	}
 	defer conn.Close()
+
 	tokens := make(chan struct{}, 10)
 	for i := 0; i < 10; i++ {
 		tokens <- struct{}{}
@@ -98,10 +105,10 @@ func worker(addr string, id, nn, lines uint32, ch chan []byte) {
 	receive(conn, tokens, id, nn, lines, ch)
 }
 
-func send(conn net.Conn, tokens chan struct{}, id, nn, lines uint32) {
+func send(conn *net.UDPConn, tokens chan struct{}, id, nn, lines uint32) {
 	var err error
 	var i, index uint32
-	writer := bufio.NewWriter(conn)
+	b := make([]byte, 4)
 	for i = 0; err == nil; i++ {
 		start := id*lines + i*nn*lines
 		end := start + lines
@@ -109,7 +116,10 @@ func send(conn net.Conn, tokens chan struct{}, id, nn, lines uint32) {
 		case <-tokens:
 		}
 		for index = start; index < end; index++ {
-			if err = binary.Write(writer, binary.LittleEndian, index); err != nil {
+
+			binary.BigEndian.PutUint32(b, index)
+			_, err = conn.Write(b)
+			if err != nil {
 				log.Printf("%d write error. %s", id, err)
 				//TODO 如果失败则需要重试
 				return
@@ -118,33 +128,22 @@ func send(conn net.Conn, tokens chan struct{}, id, nn, lines uint32) {
 	}
 }
 
-func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan []byte) {
-	reader := bufio.NewReader(conn)
+func receive(conn *net.UDPConn, tokens chan struct{}, id, nn, lines uint32, ch chan []byte) {
 	var err error
-	var i, index, l uint32
+	var i, index uint32
 	for i = 0; err == nil; i++ {
 		n, m := 0, 0
 		buf := make([]byte, 256*lines)
 		start := id*lines + i*nn*lines
 		end := start + lines
 		for index = start; index < end; index++ {
-			if err = binary.Read(reader, binary.LittleEndian, &l); err != nil {
+			m, err = conn.Read(buf[n:])
+			if err != nil {
 				log.Printf("%d read length error. %s start=%d, end=%d, index=%d", id, err, start, end, index)
 				if n > 0 {
 					ch <- buf[:n]
 				}
 				return
-			}
-			data := strconv.AppendUint(buf[n:n], uint64(index+1), 10)
-			n += len(data)
-			if m, err = io.ReadFull(reader, buf[n:n+int(l)]); err != nil {
-				if err != io.EOF {
-					n += m
-					buf[n] = byte('\n')
-					n++
-				}
-				log.Printf("%d read data error. %s start=%d, end=%d, index=%d", id, err, start, end, index)
-				break
 			}
 			n += m
 			buf[n] = byte('\n')
@@ -156,5 +155,6 @@ func receive(conn net.Conn, tokens chan struct{}, id, nn, lines uint32, ch chan 
 }
 
 func write(file io.Writer, buf []byte) {
-	file.Write(buf)
+	//TODO
+	//	file.Write(buf)
 }

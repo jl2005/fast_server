@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -18,9 +20,15 @@ var num *int
 
 var total uint64
 
+type Request struct {
+	Index uint32
+	Addr  *net.UDPAddr
+}
+
 func main() {
 	name := flag.String("f", "data", "data file name")
 	addr := flag.String("addr", ":8888", "listen address")
+	wn := flag.Int("wn", 4, "worker num")
 	num = flag.Int("num", 8, "pasre thread num")
 	profAddr := flag.String("paddr", "", "prof listen address")
 	flag.Parse()
@@ -44,22 +52,63 @@ func main() {
 	list := convert(data)
 	log.Printf("convert data used: %v", time.Now().Sub(end))
 
-	lis, err := net.Listen("tcp", *addr)
+	address, err := net.ResolveUDPAddr("udp", *addr)
 	if err != nil {
-		log.Printf("listen failed. %s", err)
-		return
+		fmt.Println("Can't resolve address: ", err)
+		os.Exit(1)
+
 	}
-	log.Printf("start listen %s, line %d", *addr, len(list))
-	var ch chan struct{}
+	conn, err := net.ListenUDP("udp", address)
+	if err != nil {
+		fmt.Println("Error listening:", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	ch := make(chan *Request)
+	done := make(chan struct{})
+	go startUdpServer(conn, len(list), ch)
+	go worker(conn, list, ch, done)
+	for i := 1; i < *wn; i++ {
+		go worker(conn, list, ch, nil)
+	}
+	select {
+	case <-done:
+	}
+	fmt.Printf("send finish")
+}
+
+func startUdpServer(conn *net.UDPConn, l int, ch chan *Request) {
 	defer close(ch)
-	go statStat(ch)
+
+	var index uint32
+	data := make([]byte, 4)
 	for {
-		conn, err := lis.Accept()
+		_, remoteAddr, err := conn.ReadFromUDP(data)
 		if err != nil {
-			log.Printf("accept failed. %s", err)
+			log.Printf("read failed. %s", err)
 			return
 		}
-		go handle(conn, list)
+		index = binary.BigEndian.Uint32(data)
+		if int(index) >= l {
+			return
+		}
+		ch <- &Request{index, remoteAddr}
+	}
+}
+
+func worker(conn *net.UDPConn, list [][]byte, ch chan *Request, done chan struct{}) {
+	if done != nil {
+		defer close(done)
+	}
+	for {
+		select {
+		case req, ok := <-ch:
+			if !ok {
+				return
+			}
+			conn.WriteToUDP(list[req.Index], req.Addr)
+		}
 	}
 }
 
